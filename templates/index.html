@@ -6,8 +6,9 @@
   <style>
     body { font-family: Arial, sans-serif; margin: 18px; }
     .btn { padding: 8px 14px; margin: 6px; cursor: pointer; }
-    .log { background: #111; color: #efe; padding: 12px; height: 320px; overflow:auto; white-space: pre-wrap; border-radius:6px; }
+    .log { background: #111; color: #efe; padding: 12px; height: 420px; overflow:auto; white-space: pre-wrap; border-radius:6px; }
     .status { margin-bottom: 10px; }
+    a { color: #07f; }
   </style>
 </head>
 <body>
@@ -24,7 +25,7 @@
   </div>
 
   <h3>Live log</h3>
-  <div id="log" class="log"></div>
+  <div id="log" class="log">Loading log…</div>
 
   <script>
     const startBtn = document.getElementById('start');
@@ -33,34 +34,108 @@
     const logEl = document.getElementById('log');
     const downloadLink = document.getElementById('download-link');
 
+    // helper: append a block of text and keep scroll at bottom
+    function appendText(text) {
+      if (!text) return;
+      // if log currently shows "Loading log..." replace it
+      if (logEl.textContent.trim() === "Loading log…") logEl.textContent = "";
+      logEl.textContent += text;
+      if (!logEl.textContent.endsWith("\n")) logEl.textContent += "\n";
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // 1) fetch latest tail log on page load
+    async function loadInitialLog() {
+      try {
+        const r = await fetch('/log?lines=500');
+        if (r.ok) {
+          const txt = await r.text();
+          logEl.textContent = txt || "";
+          logEl.scrollTop = logEl.scrollHeight;
+        } else {
+          logEl.textContent = "No log available (status: " + r.status + ")";
+        }
+      } catch (err) {
+        logEl.textContent = "Error fetching initial log: " + err;
+      }
+    }
+
+    // 2) connect SSE to receive new lines
+    let es = null;
+    let reconnectTimer = null;
+    function startEventSource() {
+      if (es) {
+        try { es.close(); } catch(e){}
+        es = null;
+      }
+      es = new EventSource('/stream');
+      es.onopen = () => {
+        console.log("SSE open");
+      };
+      es.onmessage = function(e) {
+        // e.data may contain newlines; append as-is
+        appendText(e.data);
+      };
+      es.addEventListener('done', function(e) {
+        appendText("\\n=== SCAN FINISHED ===\\n" + e.data);
+      });
+      es.onerror = function(e) {
+        console.error("EventSource error", e);
+        // try reconnect after brief delay
+        if (reconnectTimer) return;
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          startEventSource();
+        }, 2000);
+      };
+    }
+
+    // 3) Start/Stop buttons
     startBtn.addEventListener('click', async () => {
       status.textContent = 'starting...';
-      const res = await fetch('/start', { method: 'POST' });
-      const j = await res.json();
-      status.textContent = j.msg;
+      try {
+        const res = await fetch('/start', { method: 'POST' });
+        const j = await res.json();
+        status.textContent = j.msg;
+        // After start, fetch latest log (in case script wrote something already)
+        await loadInitialLog();
+        // Then start SSE
+        startEventSource();
+      } catch (err) {
+        status.textContent = 'start failed';
+        appendText("Start failed: " + err);
+      }
     });
 
     stopBtn.addEventListener('click', async () => {
       status.textContent = 'stopping...';
-      const res = await fetch('/stop', { method: 'POST' });
-      const j = await res.json();
-      status.textContent = j.msg;
+      try {
+        const res = await fetch('/stop', { method: 'POST' });
+        const j = await res.json();
+        status.textContent = j.msg;
+        appendText("Stop: " + j.msg);
+      } catch (err) {
+        status.textContent = 'stop failed';
+        appendText("Stop failed: " + err);
+      }
     });
 
-    // EventSource to stream logs
-    const es = new EventSource('/stream');
-    es.onmessage = function(e) {
-      logEl.textContent += e.data + "\\n";
-      logEl.scrollTop = logEl.scrollHeight;
-    };
-    es.addEventListener('done', function(e) {
-      logEl.textContent += "\\n=== SCAN FINISHED ===\\n" + e.data + "\\n";
-      logEl.scrollTop = logEl.scrollHeight;
+    // initial load
+    loadInitialLog().then(() => {
+      // then attach SSE so we get new lines
+      startEventSource();
+      // also query /status periodically to show simple status
+      setInterval(async () => {
+        try {
+          const r = await fetch('/status');
+          if (r.ok) {
+            const j = await r.json();
+            status.textContent = j.running ? ("Started pid=" + j.pid) : (j.exitcode !== null ? ("exitcode: " + j.exitcode) : "stopped");
+          }
+        } catch (e) { /* ignore */ }
+      }, 2000);
     });
-    es.onerror = function(e) {
-      // reconnect logic could be added
-      console.error("EventSource error", e);
-    };
+
   </script>
 </body>
 </html>

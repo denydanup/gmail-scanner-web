@@ -10,8 +10,9 @@ from collections import deque
 app = Flask(__name__)
 
 # Config (override via env)
-GRAB_SCRIPT = os.environ.get("GRAB_SCRIPT", "/mnt/data/grab.py")
-OUTPUT_XLSX = os.environ.get("OUTPUT_XLSX", "/mnt/data/hasil_subject.xlsx")
+GRAB_SCRIPT = os.environ.get("GRAB_SCRIPT", "grab.py")
+GRAB_SCRIPT = GRAB_SCRIPT if os.path.isabs(GRAB_SCRIPT) else os.path.join(os.getcwd(), GRAB_SCRIPT)
+OUTPUT_XLSX = os.environ.get("OUTPUT_XLSX", "hasil_subject.xlsx")
 LOGFILE = os.environ.get("LOGFILE", "/tmp/grab_run.log")
 PY_EXEC = os.environ.get("PYTHON_EXEC", "python3")
 LOG_TOKEN = os.environ.get("LOG_TOKEN", "")  # optional simple protection for /log endpoints

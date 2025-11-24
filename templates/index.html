@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Gmail Domain Scanner</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 18px; }
+    .btn { padding: 8px 14px; margin: 6px; cursor: pointer; }
+    .log { background: #111; color: #efe; padding: 12px; height: 320px; overflow:auto; white-space: pre-wrap; border-radius:6px; }
+    .status { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h2>Gmail Domain Scanner — Web UI</h2>
+  <div class="status">
+    <button id="start" class="btn">Start Scan</button>
+    <button id="stop" class="btn">Stop</button>
+    <a id="download-link" class="btn" href="/download">Download .xlsx</a>
+  </div>
+
+  <div>
+    <strong>Process status:</strong>
+    <span id="proc-status">idle</span>
+  </div>
+
+  <h3>Live log</h3>
+  <div id="log" class="log"></div>
+
+  <script>
+    const startBtn = document.getElementById('start');
+    const stopBtn = document.getElementById('stop');
+    const status = document.getElementById('proc-status');
+    const logEl = document.getElementById('log');
+    const downloadLink = document.getElementById('download-link');
+
+    startBtn.addEventListener('click', async () => {
+      status.textContent = 'starting...';
+      const res = await fetch('/start', { method: 'POST' });
+      const j = await res.json();
+      status.textContent = j.msg;
+    });
+
+    stopBtn.addEventListener('click', async () => {
+      status.textContent = 'stopping...';
+      const res = await fetch('/stop', { method: 'POST' });
+      const j = await res.json();
+      status.textContent = j.msg;
+    });
+
+    // EventSource to stream logs
+    const es = new EventSource('/stream');
+    es.onmessage = function(e) {
+      logEl.textContent += e.data + "\\n";
+      logEl.scrollTop = logEl.scrollHeight;
+    };
+    es.addEventListener('done', function(e) {
+      logEl.textContent += "\\n=== SCAN FINISHED ===\\n" + e.data + "\\n";
+      logEl.scrollTop = logEl.scrollHeight;
+    });
+    es.onerror = function(e) {
+      // reconnect logic could be added
+      console.error("EventSource error", e);
+    };
+  </script>
+</body>
+</html>
